@@ -1,0 +1,113 @@
+-- programs ------------------------------------------------
+
+entrypoints Program ;
+
+Program.        Program ::= [TopDef] ;
+TDFunction.	    TopDef ::= Type Ident "(" [FunctionArg] ")" StmtBlock ;
+-- TDClass.        TopDef ::= "class" Ident ClassDerivation ClassBlock ;
+
+separator nonempty TopDef "" ;
+
+-- functions -----------------------------------------------
+FArg.           FunctionArg ::= Type Ident;
+
+separator FunctionArg "," ;
+
+-- classes -------------------------------------------------
+
+-- CDerive.        ClassDerivation ::= "extends" Ident ;
+-- CNoDerive.      ClassDerivation ::= "" ;
+-- ClassBlock.     ClassBlock ::= "{" [ClassElem] "}" ;
+-- CEMethod.       ClassElem ::= Type Ident "(" [FunctionArg] ")" StmtBlock ;
+-- CEField.        ClassElem ::= Type Ident ";" ;
+-- 
+-- separator ClassElem "" ;
+
+-- statements ----------------------------------------------
+
+StmtBlock.      StmtBlock ::= "{" [Stmt] "}" ;
+
+separator  Stmt "" ;
+
+SEmpty.         Stmt ::= ";" ;
+SBlock.         Stmt ::= StmtBlock ;
+SDecl.          Stmt ::= Type [Declaration] ";" ;
+
+DeclNoInit.     Declaration ::= Ident ; 
+DeclInit.       Declaration ::= Ident "=" Expr ;
+
+separator nonempty Declaration "," ;
+
+SAss.           Stmt ::= Ident "=" Expr  ";" ;
+SIncr.          Stmt ::= Ident "++"  ";" ;
+SDecr.          Stmt ::= Ident "--"  ";" ;
+SRet.           Stmt ::= "return" Expr ";" ;
+SVRet.          Stmt ::= "return" ";" ;
+SCond.          Stmt ::= "if" "(" Expr ")" Stmt  ;
+SCondElse.      Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt  ;
+SWhile.         Stmt ::= "while" "(" Expr ")" Stmt ;
+-- SFor.           Stmt ::= "for" "(" Type Ident ":" Expr ")" Stmt ;
+SExp.           Stmt ::= Expr  ";" ;
+
+-- Types ---------------------------------------------------
+
+TInt.           Type ::= "int" ;
+TStr.           Type ::= "string" ;
+TBool.          Type ::= "boolean" ;
+TVoid.          Type ::= "void" ;
+-- TClass.         Type ::= Ident ;
+-- TArr.           Type ::= Type "[]" ;
+
+internal TFun.  Type ::= Type "(" [Type] ")" ;
+
+separator Type "," ;
+
+-- Expressions ---------------------------------------------
+
+EVar.           Expr6 ::= Ident ;
+ELitInt.        Expr6 ::= Integer ;
+ELitTrue.       Expr6 ::= "true" ;
+ELitFalse.      Expr6 ::= "false" ;
+EString.        Expr6 ::= String ;
+ENeg.           Expr5 ::= "-" Expr6 ;
+ENot.           Expr5 ::= "!" Expr6 ;
+EMul.           Expr4 ::= Expr4 OpMul Expr5 ;
+EAdd.           Expr3 ::= Expr3 OpAdd Expr4 ;
+ERel.           Expr2 ::= Expr2 OpRel Expr3 ;
+EAnd.           Expr1 ::= Expr2 "&&" Expr1 ;
+EOr.            Expr ::= Expr1 "||" Expr ;
+EApp.           Expr6 ::= Expr6 "(" [Expr] ")" ;
+
+-- ENullReg.       Expr6 ::= "(" Ident ")" "null" ;
+-- ENullArr.       Expr6 ::= "(" Ident "[]" ")" "null" ;
+-- internal ENull. Expr6 ::= "(" Type ")" "null" ;
+-- ENew.           Expr6 ::= "new" Type ;
+-- ENewArr.        Expr6 ::= "new" Type "[" Expr "]" ;
+-- EMember.        Expr6 ::= Expr6 "." Ident ;
+-- EArrAcc.        Epxr6 ::= Expr6 "[" [Expr] "]" ;
+
+coercions  Expr 6 ;
+
+separator  Expr "," ;
+
+-- operators -----------------------------------------------
+
+Plus.      OpAdd ::= "+" ;
+Minus.     OpAdd ::= "-" ;
+Times.     OpMul ::= "*" ;
+Div.       OpMul ::= "/" ;
+Mod.       OpMul ::= "%" ;
+LTH.       OpRel ::= "<" ;
+LE.        OpRel ::= "<=" ;
+GTH.       OpRel ::= ">" ;
+GE.        OpRel ::= ">=" ;
+EQU.       OpRel ::= "==" ;
+NE.        OpRel ::= "!=" ;
+
+-- comments ------------------------------------------------
+
+comment    "#" ;
+comment    "//" ;
+comment    "/*" "*/" ;
+
+
