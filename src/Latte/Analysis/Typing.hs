@@ -91,11 +91,11 @@ instance Typed Program where
 
 instance Typed TopDef where
     evalType (TDFunction p retT ident args block) = do
-        let unpackedArgs = map (\(FArg _ t n) -> (fromType t, n)) args
-            mbVoidArg = L.find ((== ITVoid) . fst) unpackedArgs
-        when (isJust mbVoidArg) $ throw $ SEVoidFunctionArgument p ident (snd $ fromJust mbVoidArg)
+        let unpackedArgs = map (\(FArg _ t n) -> (n, fromType t)) args
+            mbVoidArg = L.find ((== ITVoid) . snd) unpackedArgs
+        when (isJust mbVoidArg) $ throw $ SEVoidFunctionArgument p ident (fst $ fromJust mbVoidArg)
 
-        let argNames = map snd unpackedArgs
+        let argNames = map fst unpackedArgs
             mbRepeatedName = dup argNames
         when (isJust mbRepeatedName) $ throw $ SERepeatedFunctionArgumentName p ident (fromJust mbRepeatedName)
 
@@ -104,7 +104,7 @@ instance Typed TopDef where
             initEnv =
                 Env
                     { _innerVars = M.empty
-                    , _outerVars = M.empty
+                    , _outerVars = M.fromList unpackedArgs
                     , _funcs = funcs
                     }
 
@@ -181,8 +181,8 @@ instance Typed Expr where
     evalType (ENot p x) = do
         t <- evalType x
         expectType [ITBool] t "!" p
-    evalType (EAnd p x y) = evalBinOp p "&&" [ITInt] x y
-    evalType (EOr p x y) = evalBinOp p "||" [ITInt] x y
+    evalType (EAnd p x y) = evalBinOp p "&&" [ITBool] x y
+    evalType (EOr p x y) = evalBinOp p "||" [ITBool] x y
     evalType (EMul p x op y) =
         let exprStr = render $ prt 0 op
          in evalBinOp p exprStr [ITInt] x y
@@ -194,13 +194,13 @@ instance Typed Expr where
          in evalBinOp p exprStr [ITInt, ITStr] x y
     evalType (ERel _ x op@(EQU p) y) =
         let exprStr = render $ prt 0 op
-         in evalBinOp p exprStr [ITInt, ITStr, ITBool] x y
+         in evalBinOp p exprStr [ITInt, ITStr, ITBool] x y >> return ITBool
     evalType (ERel _ x op@(NE p) y) =
         let exprStr = render $ prt 0 op
-         in evalBinOp p exprStr [ITInt, ITStr, ITBool] x y
+         in evalBinOp p exprStr [ITInt, ITStr, ITBool] x y >> return ITBool
     evalType (ERel _ x op y) =
         let exprStr = render $ prt 0 op
-         in evalBinOp (hasPosition op) exprStr [ITInt, ITStr] x y
+         in evalBinOp (hasPosition op) exprStr [ITInt, ITStr] x y >> return ITBool
 
 evalBinOp :: BNFC'Position -> String -> [InternalType] -> Expr -> Expr -> TypingState InternalType
 evalBinOp p exprStr allowedTypes x y = do

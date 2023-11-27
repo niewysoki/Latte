@@ -10,12 +10,21 @@ author:             Franciszek Hnatów
 maintainer:         franciszek.hnatow@gmail.com
 
 library
-    -- exposed-modules:
-
-
+    exposed-modules:
+        Latte.Analysis.StaticAnalysis
+        Latte.Grammar.ErrM
+        Latte.Grammar.Lex
+        Latte.Grammar.Par
 
     -- Modules included in this library but not exported.
-    -- other-modules:
+    other-modules:
+        Latte.Analysis.Data
+        Latte.Analysis.Exceptions
+        Latte.Analysis.Reachability
+        Latte.Analysis.Rewrite
+        Latte.Analysis.Typing
+        Latte.Grammar.Abs
+        Latte.Grammar.Print
        
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

@@ -25,6 +25,8 @@ data StaticException
     | SERepeatedFunctionArgumentName BNFC'Position Ident Ident
     | SEFunctionRedeclaration Ident
     | SENoMain
+    | SENoReturn Ident
+    deriving (Show)
 
 showPos :: BNFC'Position -> String
 showPos (Just (x, y)) = "col: " ++ show x ++ ", row: " ++ show y
@@ -33,3 +35,4 @@ showPos Nothing = "unknown position"
 throw :: forall (m :: DK.Type -> DK.Type) a. MonadFail m => StaticException -> m a
 throw (SENoSuchFunction pos (Ident name)) = fail $ "Compilation error: No function found for name: " ++ name ++ ", at " ++ showPos pos
 throw (SENoSuchVariable pos (Ident name)) = fail $ "Compilation error: No variable found for name: " ++ name ++ ", at " ++ showPos pos
+throw exc = fail $ show exc
