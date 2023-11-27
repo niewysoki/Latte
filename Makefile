@@ -6,4 +6,5 @@ all:
 
 clean:
 		rm -f latc_llvm
+		rm -f latc
 		cabal clean

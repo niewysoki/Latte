@@ -64,3 +64,24 @@ executable latc_llvm
     ghc-options:
         -Wall
 
+executable latc
+    main-is:       Main.hs 
+
+    -- other-modules:
+        
+
+    -- LANGUAGE extensions used by modules in this package.
+    -- other-extensions:
+
+    build-depends:
+        Latte,
+        base ^>=4.15.1.0,
+        text ^>=1.2.5.0,
+        filepath ^>=1.4.2.1,
+        directory ^>=1.3.6.2,
+        process ^>=1.6.13.2
+
+    hs-source-dirs:   app
+    default-language: Haskell2010
+    ghc-options:
+        -Wall

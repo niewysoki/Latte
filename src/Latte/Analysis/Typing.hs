@@ -128,27 +128,27 @@ instance Typed Stmt where
         unless (et == vt) $ throw $ SEVariableAssignmentTypeMismatch p ident et vt
     evalType (SIncr p ident) _ = do
         vt <- getVarType p ident
-        unless (vt == ITInt) $ throw $ SEExpectedVariableOfType p vt ITInt
+        unless (vt == ITInt) $ throw $ SEExpectedVariableOfType p ITInt vt
     evalType (SDecr p ident) _ = do
         vt <- getVarType p ident
-        unless (vt == ITInt) $ throw $ SEExpectedVariableOfType p vt ITInt
+        unless (vt == ITInt) $ throw $ SEExpectedVariableOfType p ITInt vt
     evalType (SRet p expr) expected = do
         et <- evalType expr
-        unless (et == expected) $ throw $ SEExpectedExpressionOfType p et expected
+        unless (et == expected) $ throw $ SEExpectedExpressionOfType p expected et
     evalType (SVRet _) ITVoid = return ()
-    evalType (SVRet p) expected = throw $ SEExpectedExpressionOfType p ITVoid expected
+    evalType (SVRet p) expected = throw $ SEExpectedExpressionOfType p expected ITVoid
     evalType (SCond p expr stmt) rt = do
         et <- evalType expr
-        unless (et == ITBool) $ throw $ SEExpectedExpressionOfType p et ITBool
+        unless (et == ITBool) $ throw $ SEExpectedExpressionOfType p ITBool et
         preservingEnv (evalType stmt rt)
     evalType (SCondElse p expr true false) rt = do
         et <- evalType expr
-        unless (et == ITBool) $ throw $ SEExpectedExpressionOfType p et ITBool
+        unless (et == ITBool) $ throw $ SEExpectedExpressionOfType p ITBool et
         preservingEnv (evalType true rt)
         preservingEnv (evalType false rt)
     evalType (SWhile p expr stmt) rt = do
         et <- evalType expr
-        unless (et == ITBool) $ throw $ SEExpectedExpressionOfType p et ITBool
+        unless (et == ITBool) $ throw $ SEExpectedExpressionOfType p ITBool et
         preservingEnv (evalType stmt rt)
     evalType (SExp _ expr) _ = void $ evalType expr
 
@@ -170,7 +170,7 @@ instance Typed Expr where
             argNumProvided = length argTypes
             equalArgNum = argNumFun == argNumProvided
         unless equalArgNum $ throw $ SEArgumentNumberMismatch p ident argNumFun argNumProvided
-        let argPairs = zip argTypes expectedArgTypes
+        let argPairs = zip expectedArgTypes argTypes
             mbFstDiff = L.find (uncurry (/=)) argPairs
         when (isJust mbFstDiff) $ throw $ uncurry (SEArgumentTypeMismatch p ident) (fromJust mbFstDiff)
         return retT
@@ -223,12 +223,12 @@ declare :: InternalType -> Declaration -> TypingState ()
 declare declType (DeclNoInit p ident) = do
     mbInner <- gets (M.lookup ident . _innerVars)
     case mbInner of
-        Just vt -> throw $ SEVariableRedeclaration p ident vt declType
+        Just vt -> throw $ SEVariableRedeclaration p ident vt
         Nothing -> modify $ \env -> env{_innerVars = M.insert ident declType (_innerVars env)}
 declare declType (DeclInit p ident expr) = do
     mbInner <- gets (M.lookup ident . _innerVars)
     case mbInner of
-        Just vt -> throw $ SEVariableRedeclaration p ident vt declType
+        Just vt -> throw $ SEVariableRedeclaration p ident vt
         Nothing -> do
             et <- evalType expr
             unless (et == declType) $ throw $ SEVariableAssignmentTypeMismatch p ident et declType

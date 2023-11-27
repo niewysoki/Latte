@@ -1,23 +1,33 @@
 module Latte.Analysis.Data where
 
+import Data.List (intercalate)
 import qualified Data.Map as M
 import Latte.Grammar.Abs
 
-data FunctionType = ITFun InternalType [InternalType] deriving (Eq, Show)
+data FunctionType = ITFun InternalType [InternalType] deriving (Eq)
+
+instance Show FunctionType where
+    show (ITFun rt argts) = show rt ++ "(" ++ intercalate "," (map show argts) ++ ")"
 
 data InternalType
     = ITInt
     | ITStr
     | ITBool
     | ITVoid
-    deriving (Eq, Show)
+    deriving (Eq)
+
+instance Show InternalType where
+    show ITInt = "int"
+    show ITStr = "string"
+    show ITBool = "bool"
+    show ITVoid = "void"
 
 fromType :: Type -> InternalType
 fromType (TInt _) = ITInt
 fromType (TStr _) = ITStr
 fromType (TBool _) = ITBool
 fromType (TVoid _) = ITVoid
-fromType _ = error "TODO"
+fromType _ = error "Internal compiler error, contact the maintainer"
 
 funcTypePrintInt, funcTypePrintString, funcTypeError, funcTypeReadInt, funcTypeReadString :: FunctionType
 funcTypePrintInt = ITFun ITVoid [ITInt]
@@ -36,6 +46,9 @@ runtimeFuncTypes =
         , (Ident "readInt", funcTypeReadInt)
         , (Ident "readString", funcTypeReadString)
         ]
+
+runtimeFuncNames :: [String]
+runtimeFuncNames = map ((\(Ident name) -> name) . fst) $ M.toList runtimeFuncTypes
 
 funcTypeMain :: FunctionType
 funcTypeMain = ITFun ITInt []
