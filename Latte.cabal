@@ -20,7 +20,7 @@ library
     other-modules:
         Latte.Analysis.Data
         Latte.Analysis.Exceptions
-        Latte.Analysis.Reachability
+        Latte.Analysis.ReturnAnalysis
         Latte.Analysis.Rewrite
         Latte.Analysis.Typing
         Latte.Grammar.Abs
