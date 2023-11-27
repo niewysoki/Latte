@@ -43,7 +43,7 @@ import Latte.Grammar.Abs (
     TopDef,
     TopDef' (TDFunction),
  )
-import Latte.Grammar.ErrM (Err, pattern Bad, pattern Ok)
+import Latte.Grammar.ErrM (Err)
 import Latte.Grammar.Print (Print (..), render)
 
 checkTypes :: Program -> Err ()
@@ -109,8 +109,8 @@ instance Typed TopDef where
                     }
 
         case runStateT (evalType block rt) initEnv of
-            Bad msg -> fail msg
-            Ok _ -> return ()
+            Left msg -> fail msg
+            Right _ -> return ()
 
 instance Typed StmtBlock where
     evalType (StmtBlock _ stmts) rt = preservingEnv (mapM_ (`evalType` rt) stmts)

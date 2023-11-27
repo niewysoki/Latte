@@ -8,7 +8,8 @@ import Data.Maybe (fromJust, isJust)
 import Latte.Analysis.Data (InternalType (ITVoid), fromType)
 import Latte.Analysis.Exceptions (StaticException (SENoReturn), throw)
 import Latte.Grammar.Abs (
-    Expr' (ELitTrue),
+    Expr' (..),
+    Ident (..),
     Program,
     Program' (Program),
     Stmt,
@@ -42,4 +43,5 @@ instance Returns Stmt where
     returns (SWhile _ _ stmt) = returns stmt
     returns (SRet{}) = True
     returns (SVRet{}) = True
+    returns (SExp _ (EApp _ (EVar _ (Ident "error")) [])) = True
     returns _ = False

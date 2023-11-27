@@ -5,9 +5,8 @@ module Latte.Analysis.Exceptions where
 
 import qualified Data.Kind as DK
 import Data.List (intercalate)
-import qualified Data.Map as M
 import Latte.Analysis.Data (InternalType, runtimeFuncNames)
-import Latte.Grammar.Abs
+import Latte.Grammar.Abs (BNFC'Position, Ident (..))
 
 data StaticException
     = SENoSuchFunction BNFC'Position Ident
