@@ -2,9 +2,8 @@ module Latte.Analysis.Data where
 
 import qualified Data.Map as M
 import Latte.Grammar.Abs
-import Latte.Grammar.ErrM
 
-data FunctionType = ITFun InternalType [InternalType]
+data FunctionType = ITFun InternalType [InternalType] deriving (Eq, Show)
 
 data InternalType
     = ITInt
@@ -13,12 +12,12 @@ data InternalType
     | ITVoid
     deriving (Eq, Show)
 
-fromType :: Type -> Err InternalType
-fromType (TInt _) = return ITInt
-fromType (TStr _) = return ITStr
-fromType (TBool _) = return ITBool
-fromType (TVoid _) = return ITVoid
-fromType _ = undefined
+fromType :: Type -> InternalType
+fromType (TInt _) = ITInt
+fromType (TStr _) = ITStr
+fromType (TBool _) = ITBool
+fromType (TVoid _) = ITVoid
+fromType _ = error "TODO"
 
 funcTypePrintInt, funcTypePrintString, funcTypeError, funcTypeReadInt, funcTypeReadString :: FunctionType
 funcTypePrintInt = ITFun ITVoid [ITInt]
@@ -27,7 +26,8 @@ funcTypeError = ITFun ITVoid []
 funcTypeReadInt = ITFun ITInt []
 funcTypeReadString = ITFun ITStr []
 
-runtimeFuncTypes :: M.Map Ident FunctionType
+type FunctionMap = M.Map Ident FunctionType
+runtimeFuncTypes :: FunctionMap
 runtimeFuncTypes =
     M.fromList
         [ (Ident "printInt", funcTypePrintInt)
@@ -39,3 +39,5 @@ runtimeFuncTypes =
 
 funcTypeMain :: FunctionType
 funcTypeMain = ITFun ITInt []
+funcNameMain :: Ident
+funcNameMain = Ident "main"

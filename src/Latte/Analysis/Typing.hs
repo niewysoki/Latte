@@ -6,163 +6,240 @@
 module Latte.Analysis.Typing where
 
 import Control.Monad (unless, void, when)
-import Control.Monad.State (StateT (runStateT), evalStateT, get, gets, lift, modify)
+import Control.Monad.Reader (ReaderT, ask, local, runReaderT)
+import Control.Monad.State (StateT (runStateT), get, gets, modify)
 import Data.Int (Int32)
+import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Maybe (fromJust, isJust)
-import Latte.Analysis.Data
-import Latte.Grammar.Abs
+import qualified Data.Set as S
+import Latte.Analysis.Data (
+    FunctionMap,
+    FunctionType (..),
+    InternalType (..),
+    fromType,
+    funcNameMain,
+    funcTypeMain,
+    runtimeFuncTypes,
+ )
+import Latte.Analysis.Exceptions (StaticException (..), throw)
+import Latte.Grammar.Abs (
+    BNFC'Position,
+    Declaration,
+    Declaration' (DeclInit, DeclNoInit),
+    Expr,
+    Expr' (..),
+    FunctionArg' (FArg),
+    HasPosition (hasPosition),
+    Ident,
+    OpAdd' (Minus, Plus),
+    OpRel' (EQU, NE),
+    Program,
+    Program' (Program),
+    Stmt,
+    Stmt' (..),
+    StmtBlock,
+    StmtBlock' (StmtBlock),
+    TopDef,
+    TopDef' (TDFunction),
+ )
 import Latte.Grammar.ErrM (Err, pattern Bad, pattern Ok)
+import Latte.Grammar.Print (Print (..), render)
+
+checkTypes :: Program -> Err ()
+checkTypes prog = runReaderT (evalType prog) runtimeFuncTypes
 
 data Env = Env
-    { _outer_vars :: M.Map Ident InternalType
-    , _inner_vars :: M.Map Ident InternalType
+    { _outerVars :: M.Map Ident InternalType
+    , _innerVars :: M.Map Ident InternalType
     , _funcs :: M.Map Ident FunctionType
-    , _expected_return_type :: Maybe InternalType
     }
 
-startEnv :: Env
-startEnv = Env{_outer_vars = M.empty, _inner_vars = M.empty, _funcs = runtimeFuncTypes, _expected_return_type = Nothing}
-
-type TypingState = StateT Env Err
+type TypingState a = StateT Env Err a
+type TypingReader a = ReaderT FunctionMap Err a
 
 type family TypingResult a where
-    TypingResult Expr = InternalType
-    TypingResult Stmt = ()
-    TypingResult StmtBlock = ()
-    TypingResult Type = InternalType
+    TypingResult Expr = TypingState InternalType
+    TypingResult Stmt = InternalType -> TypingState ()
+    TypingResult StmtBlock = InternalType -> TypingState ()
+    TypingResult TopDef = TypingReader ()
+    TypingResult Program = TypingReader ()
 
 class Typed a where
-    evalType :: a -> TypingState (TypingResult a)
+    evalType :: a -> TypingResult a
+
+instance Typed Program where
+    evalType (Program _ topDefs) = do
+        runtimeFs <- ask
+        let fds = map functionDeclaration $ filter isFunction topDefs
+            runtimeNames = map fst $ M.toList runtimeFs
+            names = map fst fds ++ runtimeNames
+            mbFstRedeclaration = dup names
+            hasMain = (funcNameMain, funcTypeMain) `elem` fds
+
+        when (isJust mbFstRedeclaration) $ throw $ SEFunctionRedeclaration (fromJust mbFstRedeclaration)
+        unless hasMain $ throw SENoMain
+
+        local (M.union (M.fromList fds)) $ mapM_ evalType topDefs
+      where
+        functionDeclaration (TDFunction _ retT name args _) =
+            let rt = fromType retT
+                ats = map (\(FArg _ t _) -> fromType t) args
+             in (name, ITFun rt ats)
+
+        isFunction (TDFunction{}) = True
+
+instance Typed TopDef where
+    evalType (TDFunction p retT ident args block) = do
+        let unpackedArgs = map (\(FArg _ t n) -> (fromType t, n)) args
+            mbVoidArg = L.find ((== ITVoid) . fst) unpackedArgs
+        when (isJust mbVoidArg) $ throw $ SEVoidFunctionArgument p ident (snd $ fromJust mbVoidArg)
+
+        let argNames = map snd unpackedArgs
+            mbRepeatedName = dup argNames
+        when (isJust mbRepeatedName) $ throw $ SERepeatedFunctionArgumentName p ident (fromJust mbRepeatedName)
+
+        funcs <- ask
+        let rt = fromType retT
+            initEnv =
+                Env
+                    { _innerVars = M.empty
+                    , _outerVars = M.empty
+                    , _funcs = funcs
+                    }
+
+        case runStateT (evalType block rt) initEnv of
+            Bad msg -> fail msg
+            Ok _ -> return ()
 
 instance Typed StmtBlock where
-    evalType (StmtBlock _ stmts) = preservingEnv (mapM_ evalType stmts)
+    evalType (StmtBlock _ stmts) rt = preservingEnv (mapM_ (`evalType` rt) stmts)
 
 instance Typed Stmt where
-    evalType (SEmpty _) = return ()
-    evalType (SBlock _ block) = evalType block
-    evalType (SDecl _ declType declarations) = do
-        let mbType = fromType declType
-        case mbType of
-            Bad msg -> fail msg
-            Ok declType' -> mapM_ (declare declType') declarations
-    evalType (SAss p ident expr) = do
-        exprType <- evalType expr
-        varType <- getVarType p ident
-        unless (exprType == varType) $ fail $ "TODO"
-    evalType (SIncr p ident) = do
-        varType <- getVarType p ident
-        unless (varType == ITInt) $ fail $ "TODO"
-    evalType (SDecr p ident) = do
-        varType <- getVarType p ident
-        unless (varType == ITInt) $ fail $ "TODO"
-    evalType (SRet p expr) = do
-        exprType <- evalType expr
-        (Just expected) <- gets _expected_return_type
-        unless (exprType == expected) $ fail "TODO"
-    evalType (SVRet p) = do
-        (Just expected) <- gets _expected_return_type
-        unless (expected == ITVoid) $ fail "TODO"
-    evalType (SCond p expr stmt) = do
-        exprType <- evalType expr
-        unless (exprType == ITBool) $ fail "TODO"
-        preservingEnv (evalType stmt)
-    evalType (SCondElse p expr true false) = do
-        exprType <- evalType expr
-        unless (exprType == ITBool) $ fail "TODO"
-        preservingEnv (evalType true)
-        preservingEnv (evalType false)
-    evalType (SWhile p expr stmt) = do
-        exprType <- evalType expr
-        unless (exprType == ITBool) $ fail "TODO"
-        preservingEnv (evalType stmt)
-    evalType (SExp _ expr) = void $ evalType expr
+    evalType (SEmpty _) _ = return ()
+    evalType (SBlock _ block) rt = evalType block rt
+    evalType (SDecl p declType declarations) _ = do
+        let dt = fromType declType
+        when (dt == ITVoid) $ throw $ SEVoidVariableDeclaration p
+        mapM_ (declare dt) declarations
+    evalType (SAss p ident expr) _ = do
+        et <- evalType expr
+        vt <- getVarType p ident
+        unless (et == vt) $ throw $ SEVariableAssignmentTypeMismatch p ident et vt
+    evalType (SIncr p ident) _ = do
+        vt <- getVarType p ident
+        unless (vt == ITInt) $ throw $ SEExpectedVariableOfType p vt ITInt
+    evalType (SDecr p ident) _ = do
+        vt <- getVarType p ident
+        unless (vt == ITInt) $ throw $ SEExpectedVariableOfType p vt ITInt
+    evalType (SRet p expr) expected = do
+        et <- evalType expr
+        unless (et == expected) $ throw $ SEExpectedExpressionOfType p et expected
+    evalType (SVRet _) ITVoid = return ()
+    evalType (SVRet p) expected = throw $ SEExpectedExpressionOfType p ITVoid expected
+    evalType (SCond p expr stmt) rt = do
+        et <- evalType expr
+        unless (et == ITBool) $ throw $ SEExpectedExpressionOfType p et ITBool
+        preservingEnv (evalType stmt rt)
+    evalType (SCondElse p expr true false) rt = do
+        et <- evalType expr
+        unless (et == ITBool) $ throw $ SEExpectedExpressionOfType p et ITBool
+        preservingEnv (evalType true rt)
+        preservingEnv (evalType false rt)
+    evalType (SWhile p expr stmt) rt = do
+        et <- evalType expr
+        unless (et == ITBool) $ throw $ SEExpectedExpressionOfType p et ITBool
+        preservingEnv (evalType stmt rt)
+    evalType (SExp _ expr) _ = void $ evalType expr
 
 instance Typed Expr where
     evalType (EVar p ident) = getVarType p ident
     evalType (ELitInt p lit) = do
-        let lo = toInteger $ minBound @Int32
-            hi = toInteger $ maxBound @Int32
-        unless (lit >= lo && lit <= hi) $ fail $ "TODO BAD LITERAL INT " ++ show p ++ show lo ++ show hi
+        unless (lit >= lo && lit <= hi) $ throw $ SEIntLiteralOutOfBounds p lit lo hi
         return ITInt
+      where
+        lo = toInteger $ minBound @Int32
+        hi = toInteger $ maxBound @Int32
     evalType (ELitTrue _) = return ITBool
     evalType (ELitFalse _) = return ITBool
     evalType (EString _ _) = return ITStr
     evalType (EApp p (EVar p' ident) argExprs) = do
-        argTypes <- mapM evalType argExprs
         ITFun retT expectedArgTypes <- getFuncType p' ident
-        unless (length argTypes == length expectedArgTypes) $ fail $ "TODO"
-        unless (argTypes == expectedArgTypes) $ fail $ "TODO"
+        argTypes <- mapM evalType argExprs
+        let argNumFun = length expectedArgTypes
+            argNumProvided = length argTypes
+            equalArgNum = argNumFun == argNumProvided
+        unless equalArgNum $ throw $ SEArgumentNumberMismatch p ident argNumFun argNumProvided
+        let argPairs = zip argTypes expectedArgTypes
+            mbFstDiff = L.find (uncurry (/=)) argPairs
+        when (isJust mbFstDiff) $ throw $ uncurry (SEArgumentTypeMismatch p ident) (fromJust mbFstDiff)
         return retT
-    evalType (EApp p exp argExprs) = fail "TODO"
+    evalType (EApp p _ _) = throw $ SEIsNotFunction p
     evalType (ENeg p x) = do
-        t <- expectEqualTypes [x] "TODO"
-        expectAllowedType [ITInt] t "TODO"
-        return t
+        t <- evalType x
+        expectType [ITInt] t "-" p
     evalType (ENot p x) = do
-        t <- expectEqualTypes [x] "TODO"
-        expectAllowedType [ITBool] t "TODO"
-        return t
-    evalType (EAnd p x y) = do
-        t <- expectEqualTypes [x, y] "TODO"
-        expectAllowedType [ITBool] t "TODO"
-        return t
-    evalType (EOr p x y) = do
-        t <- expectEqualTypes [x, y] "TODO"
-        expectAllowedType [ITBool] t "TODO"
-        return t
-    evalType (EMul p x op y) = do
-        t <- expectEqualTypes [x, y] "TODO"
-        expectAllowedType [ITInt] t "TODO"
-        return t
-    evalType (EAdd p x op@(Minus _) y) = do
-        t <- expectEqualTypes [x, y] "TODO"
-        expectAllowedType [ITInt] t "TODO"
-        return t
-    evalType (EAdd p x op@(Plus _) y) = do
-        t <- expectEqualTypes [x, y] "TODO"
-        expectAllowedType [ITInt, ITStr] t "TODO"
-        return t
-    evalType (ERel p x op@(EQU _) y) = expectEqualTypes [x, y] "TODO"
-    evalType (ERel p x op@(NE _) y) = expectEqualTypes [x, y] "TODO"
-    evalType (ERel p x op y) = do
-        t <- expectEqualTypes [x, y] "TODO"
-        expectAllowedType [ITInt, ITStr] t "TODO"
-        return t
+        t <- evalType x
+        expectType [ITBool] t "!" p
+    evalType (EAnd p x y) = evalBinOp p "&&" [ITInt] x y
+    evalType (EOr p x y) = evalBinOp p "||" [ITInt] x y
+    evalType (EMul p x op y) =
+        let exprStr = render $ prt 0 op
+         in evalBinOp p exprStr [ITInt] x y
+    evalType (EAdd _ x op@(Minus p) y) =
+        let exprStr = render $ prt 0 op
+         in evalBinOp p exprStr [ITInt] x y
+    evalType (EAdd _ x op@(Plus p) y) =
+        let exprStr = render $ prt 0 op
+         in evalBinOp p exprStr [ITInt, ITStr] x y
+    evalType (ERel _ x op@(EQU p) y) =
+        let exprStr = render $ prt 0 op
+         in evalBinOp p exprStr [ITInt, ITStr, ITBool] x y
+    evalType (ERel _ x op@(NE p) y) =
+        let exprStr = render $ prt 0 op
+         in evalBinOp p exprStr [ITInt, ITStr, ITBool] x y
+    evalType (ERel _ x op y) =
+        let exprStr = render $ prt 0 op
+         in evalBinOp (hasPosition op) exprStr [ITInt, ITStr] x y
 
-expectAllowedType :: Show a => [InternalType] -> InternalType -> a -> TypingState ()
-expectAllowedType allowedTypes t errSource = do
-    unless (t `elem` allowedTypes) $ fail "TODO"
+evalBinOp :: BNFC'Position -> String -> [InternalType] -> Expr -> Expr -> TypingState InternalType
+evalBinOp p exprStr allowedTypes x y = do
+    t <- expectEqualTypes x y exprStr p
+    expectType allowedTypes t exprStr p
 
-expectEqualTypes :: Show a => [Expr] -> a -> TypingState InternalType
-expectEqualTypes expressions errSource = do
-    when (null expressions) $ fail "TODO"
-    types <- mapM evalType expressions
-    let opType = head types
-    unless (all (== opType) types) $ fail "TODO"
-    return opType
+expectType :: [InternalType] -> InternalType -> String -> BNFC'Position -> TypingState InternalType
+expectType allowedTypes t exprStr p = do
+    unless (t `elem` allowedTypes) $ throw $ SEExpressionExpectedAllowedType p exprStr allowedTypes t
+    return t
+
+expectEqualTypes :: Expr -> Expr -> String -> BNFC'Position -> TypingState InternalType
+expectEqualTypes x y exprStr p = do
+    tx <- evalType x
+    ty <- evalType y
+    unless (tx == ty) $ throw $ SEExpressionExpectedEqualTypes p exprStr tx ty
+    return tx
 
 declare :: InternalType -> Declaration -> TypingState ()
 declare declType (DeclNoInit p ident) = do
-    mbInner <- gets (M.lookup ident . _inner_vars)
+    mbInner <- gets (M.lookup ident . _innerVars)
     case mbInner of
-        Just vt -> fail "TODO"
-        Nothing -> modify $ \env -> env{_inner_vars = M.insert ident declType (_inner_vars env)}
+        Just vt -> throw $ SEVariableRedeclaration p ident vt declType
+        Nothing -> modify $ \env -> env{_innerVars = M.insert ident declType (_innerVars env)}
 declare declType (DeclInit p ident expr) = do
-    mbInner <- gets (M.lookup ident . _inner_vars)
+    mbInner <- gets (M.lookup ident . _innerVars)
     case mbInner of
-        Just vt -> fail "TODO"
+        Just vt -> throw $ SEVariableRedeclaration p ident vt declType
         Nothing -> do
-            exprType <- evalType expr
-            unless (exprType == declType) $ fail $ "TODO"
-            modify $ \env -> env{_inner_vars = M.insert ident declType (_inner_vars env)}
+            et <- evalType expr
+            unless (et == declType) $ throw $ SEVariableAssignmentTypeMismatch p ident et declType
+            modify $ \env -> env{_innerVars = M.insert ident declType (_innerVars env)}
 
 getVarType :: BNFC'Position -> Ident -> TypingState InternalType
 getVarType p ident = do
-    mbInner <- gets (M.lookup ident . _inner_vars)
-    mbOuter <- gets (M.lookup ident . _outer_vars)
+    mbInner <- gets (M.lookup ident . _innerVars)
+    mbOuter <- gets (M.lookup ident . _outerVars)
     case mergeMaybe mbInner mbOuter of
-        Nothing -> fail "TODO"
+        Nothing -> throw $ SENoSuchVariable p ident
         Just vt -> return vt
   where
     mergeMaybe :: Maybe a -> Maybe a -> Maybe a
@@ -173,13 +250,22 @@ getFuncType :: BNFC'Position -> Ident -> TypingState FunctionType
 getFuncType p ident = do
     mbFuncType <- gets (M.lookup ident . _funcs)
     case mbFuncType of
-        Nothing -> fail "TODO MESSAGE"
+        Nothing -> throw $ SENoSuchFunction p ident
         Just ft -> return ft
 
 preservingEnv :: TypingState a -> TypingState a
 preservingEnv comp = do
     env <- get
-    modify $ \e -> e{_outer_vars = M.union (_inner_vars e) (_outer_vars e), _inner_vars = M.empty}
+    modify $ \e -> e{_outerVars = M.union (_innerVars e) (_outerVars e), _innerVars = M.empty}
     ret <- comp
     modify $ const env
     return ret
+
+dup :: Ord a => [a] -> Maybe a
+dup xs = dup' xs S.empty
+  where
+    dup' [] _ = Nothing
+    dup' (y : ys) s =
+        if S.member y s
+            then Just y
+            else dup' ys (S.insert y s)
